@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+ <dict>
+   <key>Label</key>
+   <string>$AGENT_NAME</string>
+
+   <key>ProgramArguments</key>
+   <array>
+     <string>$SCRIPT_PATH</string>
+   </array>
+
+   <!-- Run at load -->
+     <key>RunAtLoad</key>
+   <true/>
+
+   <!-- Keep alive, triggers on wake from sleep -->
+   <key>KeepAlive</key>
+   <dict>
+     <key>OtherJobEnabled</key>
+     <string>com.apple.sleepd</string>
+   </dict>
+
+   <!-- Run every 900 seconds (15 minutes) -->
+   <key>StartInterval</key>
+   <integer>900</integer>
+
+   <key>StandardOutputPath</key>
+   <string>$AGENT_LOG_PATH</string>
+
+   <key>StandardErrorPath</key>
+   <string>$ERROR_LOG_PATH</string>
+</dict>
+</plist>
