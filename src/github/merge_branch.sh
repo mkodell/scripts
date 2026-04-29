@@ -1,10 +1,12 @@
 #!/bin/bash
 
+source "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/.env"
+
 FEATURE_BRANCH="$1"
 FIX_VERSION="$2"
 
 # Extracts ticket and pr number from branch name
-TICKET=${FEATURE_BRANCH:0:7}
+TICKET=$(echo "$FEATURE_BRANCH" | grep -oE '^[A-Z]+-[0-9]+')
 PR_NUMBER=$(gh pr list --head "$BRANCH" --json number -q .number)
 
 # Gets token from cli?

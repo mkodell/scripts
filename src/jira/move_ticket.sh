@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/.env"
+
 ISSUE_KEY="$1"
 TARGET_STATUS="${2}" # Default: "In QA"
 NEW_LABEL="${3}" # Default label if status is In QA

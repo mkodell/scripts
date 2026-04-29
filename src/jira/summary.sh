@@ -1,5 +1,20 @@
 #!/bin/bash
 
+source "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)/.env"
+
+WATCHED_KEYS="$HOME/scripts/jiraSummaries/watched_keys.txt"
+
+get_log_path() {
+  local date="$1"
+  local year month quarter
+  year=$(echo "$date" | cut -d'-' -f1)
+  month=$(echo "$date" | cut -d'-' -f2)
+  quarter=$(( (10#$month - 1) / 3 + 1 ))
+  local dir="$HOME/scripts/jiraSummaries/logs"
+  mkdir -p "$dir"
+  echo "$dir/${year}-Q${quarter}.log"
+}
+
 # ---------------- setup ----------------
 
 mkdir -p "$(dirname "$WATCHED_KEYS")"
@@ -237,7 +252,9 @@ echo "Total Rollover Issues: $ROLLOVER_COUNT"
 if [[ "$COMMAND" == "--print" ]]; then
   FORMATTED_START=$(format_date "$START")
   FORMATTED_END=$(format_date "$END")
+  LOG_PATH=$(get_log_path "$START")
 
+  TEMP_LOG=$(mktemp)
   {
     echo "$SPRINT ($FORMATTED_START - $FORMATTED_END)"
     echo "$OUTPUT"
@@ -248,5 +265,18 @@ if [[ "$COMMAND" == "--print" ]]; then
     echo "Total Rollover Issues: $ROLLOVER_COUNT"
     echo ""
     echo ""
-  } >> "$LOG_PATH"
+  } > "$TEMP_LOG"
+
+  cat "$LOG_PATH" >> "$TEMP_LOG" 2>/dev/null
+  mv "$TEMP_LOG" "$LOG_PATH"
+fi
+
+# ---------------- auto-remove closed ----------------
+
+if [[ "$COMMAND" == "--print" ]]; then
+  CLOSED_KEYS=$(jq -r '.issues[] | select(.fields.status.name == "Closed") | .key' <<< "$FURTHER_DETAILS")
+
+  for key in $CLOSED_KEYS; do
+    sed -i '' "/^$key$/d" "$WATCHED_KEYS"
+  done
 fi
