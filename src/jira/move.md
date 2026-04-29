@@ -13,3 +13,4 @@ Statuses (just like it’s on the board in Jira):
 
 * Tags and fix versions should be passed exactly like they are in Jira
 * If token ever needs to be updated: https://id.atlassian.com/manage-profile/security/api-tokens
+* Can now handle any number for tickets (3 numbers, 4 numbers, etc.)

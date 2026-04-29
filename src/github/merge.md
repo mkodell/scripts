@@ -8,3 +8,4 @@ fix_version is optional. If it’s already been merged once, you don’t need it
 
 * Ticket is extracted from the branch name (for jira movements at the end)
 * By using gh cli, you don’t have to have auth tokens stored in the script. Gh cli will automatically handle that as long as you’re authed there
+* Now works with concurrency
