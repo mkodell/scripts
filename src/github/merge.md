@@ -1,4 +1,4 @@
-Checks if master is building, attempts to merge the pr, watches for builds to finish, then runs the jira move command with the in QA options
+Checks if merging branch is building, checks if master is building, attempts to merge the pr, watches for builds to finish, then runs the jira move command with the in QA options
 TODO (currently being worked on):
 Will check if the branch is ready to merge, if it is it will proceed, if it’s not, it will attempt to merge master into the branch, then proceed
 
