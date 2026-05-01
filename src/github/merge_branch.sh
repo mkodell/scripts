@@ -12,6 +12,9 @@ PR_NUMBER=$(gh pr list --head "$BRANCH" --json number -q .number)
 # Gets token from cli?
 GITHUB_TOKEN=$(gh auth token)
 
+### === wait for target branch to not be building ===
+./scripts/github_pr_checker.sh $FEATURE_BRANCH
+
 ### === Check master is not building ===
 ./scripts/github_pr_checker.sh master
 
