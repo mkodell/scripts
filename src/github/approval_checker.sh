@@ -39,7 +39,7 @@ NR==1 {
   else if ($1 ~ /^VA-|^VITV-|^VKK-|^VKNG-/) sub(/^[^ ]*/, PURPLE "&" RESET)
   else if ($1 ~ /^ARA-/) sub(/^ARA-[^ ]*/, RED "&" RESET)
 
-  # ---- CHANGES ----
+  # ---- CHANGES & CONFLICTS ----
   gsub(/yes/, RED "yes" RESET)
 
   # ---- APPROVALS ---- (number preceded by 2+ spaces, not part of a key like EJA-802)
@@ -91,7 +91,7 @@ fi
  
 # ---------------- fetch PR approvals ----------------
  
-# Accumulate rows: KEY | SUMMARY | PR | APPROVALS | CHANGES
+# Accumulate rows: KEY | SUMMARY | PR | APPROVALS | CHANGES | CONFLICTS
 ROWS=()
  
 while IFS=$'\t' read -r issue_id issue_key summary; do
@@ -103,7 +103,7 @@ while IFS=$'\t' read -r issue_id issue_key summary; do
     PR_COUNT=$(jq '[.detail[]?.pullRequests[]?] | length' <<< "$DEV_INFO")
  
     if [[ "$PR_COUNT" -eq 0 ]]; then
-        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "(no PRs)" "-" "")")
+        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "(no PRs)" "-" "" "")")
         continue
     fi
  
@@ -114,12 +114,17 @@ while IFS=$'\t' read -r issue_id issue_key summary; do
         pr_number=$(echo "$pr_path" | cut -d'/' -f4)
  
         if [[ -z "$owner" || -z "$repo" || -z "$pr_number" ]]; then
-            ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "?" "")")
+            ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "?" "" "")")
             continue
         fi
- 
+
         REVIEWS=$(curl -s \
           --url "https://api.github.com/repos/${owner}/${repo}/pulls/${pr_number}/reviews" \
+          --header "Authorization: Bearer $GITHUB_TOKEN" \
+          --header 'Accept: application/vnd.github+json')
+
+        PR_INFO=$(curl -s \
+          --url "https://api.github.com/repos/${owner}/${repo}/pulls/${pr_number}" \
           --header "Authorization: Bearer $GITHUB_TOKEN" \
           --header 'Accept: application/vnd.github+json')
 
@@ -127,7 +132,9 @@ while IFS=$'\t' read -r issue_id issue_key summary; do
 
         CHANGES=$(jq -r 'if type == "array" then group_by(.user.login) | map(sort_by(.submitted_at) | last) | map(select(.state == "CHANGES_REQUESTED")) | if length > 0 then "yes" else "" end else "" end' <<< "$REVIEWS")
 
-        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "$APPROVALS" "$CHANGES")")
+        CONFLICTS=$(jq -r 'if .mergeable == false then "yes" else "" end' <<< "$PR_INFO")
+
+        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "$APPROVALS" "$CHANGES" "$CONFLICTS")")
  
     done < <(jq -r '
       .detail[]?.pullRequests[]? |
@@ -139,7 +146,7 @@ done < <(jq -r '.[] | [.id, .key, .fields.summary] | @tsv' <<< "$CODE_REVIEW_ISS
 # ---------------- render table ----------------
  
 {
-    printf '%s\t%s\t%s\t%s\t%s\n' "KEY" "SUMMARY" "PR" "APPROVALS" "CHANGES"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "KEY" "SUMMARY" "PR" "APPROVALS" "CHANGE_REQUEST" "CONFLICTS"
     for row in "${ROWS[@]}"; do
         echo "$row"
     done
@@ -148,4 +155,3 @@ column -t -s $'\t' |
 colorize_table
  
 echo ""
-echo "Issues in Code Review: $CODE_REVIEW_COUNT"
