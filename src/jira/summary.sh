@@ -10,7 +10,7 @@ get_log_path() {
   year=$(echo "$date" | cut -d'-' -f1)
   month=$(echo "$date" | cut -d'-' -f2)
   quarter=$(( (10#$month - 1) / 3 + 1 ))
-  local dir="$HOME/scripts/jiraSummaries/logs"
+  local dir="$HOME/scripts/summaries/logs"
   mkdir -p "$dir"
   echo "$dir/${year}-Q${quarter}.log"
 }
@@ -87,6 +87,21 @@ NR==1 {
 }
 
 {
+  # ---- QA_FAILS ----
+  # QA_FAILS is always the last non-blank column (NOTES is always empty),
+  # so match the trailing run of digits at end of line rather than a bare
+  # digit anywhere, to avoid colliding with ESTIMATE/dates/DURATION.
+  if (match($0, /[0-9]+ *$/)) {
+    seg = substr($0, RSTART, RLENGTH)
+    digits = seg
+    gsub(/ /, "", digits)
+    trail = substr(seg, length(digits) + 1)
+    if (digits == "0") qacolor = GREEN
+    else if (digits == "1") qacolor = YELLOW
+    else qacolor = RED
+    $0 = substr($0, 1, RSTART - 1) qacolor digits RESET trail
+  }
+
   # ---- STATUS ----
   gsub(/In_Progress|Code_Review|In_QA/, YELLOW "&" RESET)
   gsub(/Closed/, GREEN "&" RESET)
@@ -107,7 +122,7 @@ render_table() {
   local color="$2"
 
   jq -r '
-    ["KEY","NAME","STATUS","ESTIMATE","VERSION","STARTED_AT","CLOSED_AT","DURATION","NOTES"],
+    ["KEY","NAME","STATUS","ESTIMATE","VERSION","STARTED_AT","CLOSED_AT","DURATION","QA_FAILS","NOTES"],
     (.issues[] | [
       .key,
       .fields.summary,
@@ -117,24 +132,29 @@ render_table() {
       (.fields.customfield_11605 // "-"),
       (.fields.resolutiondate // "-"),
       "",
+      ([.changelog.histories[]?.items[]? | select(.field=="status" and .fromString=="In QA" and (.toString=="In Progress" or .toString=="Open"))] | length | tostring),
       ""
-    ]) | @tsv
+    ]) | @sh
   ' <<< "$json" |
 
-  while IFS=$'\t' read -r key name status estimate version started closed duration notes; do
+  while IFS= read -r row; do
+    eval "set -- $row"
+    key="$1"; name="$2"; status="$3"; estimate="$4"; version="$5"
+    started="$6"; closed="$7"; duration="$8"; qa="$9"; notes="${10}"
+
     if [[ "$key" == "KEY" ]]; then
-      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-        "$key" "$name" "$status" "$estimate" "$version" "$started" "$closed" "$duration" "$notes"
+      printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+        "$key" "$name" "$status" "$estimate" "$version" "$started" "$closed" "$duration" "$qa" "$notes"
       continue
     fi
-    
+
     started=$(format_date "$started")
     closed=$(format_date "$closed")
     estimate=${estimate%%.*}
     duration=$(weekday_duration "$started" "$closed")
 
-    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
-      "$key" "$name" "$status" "$estimate" "$version" "$started" "$closed" "$duration" "$notes"
+    printf "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" \
+      "$key" "$name" "$status" "$estimate" "$version" "$started" "$closed" "$duration" "$qa" "$notes"
   done |
   awk -F'\t' '
     NR==1 { print "0\t"$0; next }
@@ -228,7 +248,7 @@ REGULAR_COUNT=$(jq '.issues | length' <<< "$FURTHER_DETAILS")
 
 ROLLOVER_DETAILS=$(
 jq --arg START "$START" '
-  .issues |= map(select(.fields.customfield_11605 < $START))
+  .issues |= map(select(.fields.customfield_11605 != null and .fields.customfield_11605 < $START))
 ' <<< "$FURTHER_DETAILS"
 )
 
