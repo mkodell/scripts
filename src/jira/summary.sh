@@ -10,7 +10,7 @@ get_log_path() {
   year=$(echo "$date" | cut -d'-' -f1)
   month=$(echo "$date" | cut -d'-' -f2)
   quarter=$(( (10#$month - 1) / 3 + 1 ))
-  local dir="$HOME/scripts/summaries/logs"
+  local dir="$HOME/scripts/jiraSummaries/logs"
   mkdir -p "$dir"
   echo "$dir/${year}-Q${quarter}.log"
 }
