@@ -92,6 +92,8 @@ fi
 # ---------------- fetch PR approvals ----------------
  
 # Accumulate rows: KEY | SUMMARY | PR | APPROVALS | CHANGES | CONFLICTS
+# Never leave a field empty: macOS `column -t` collapses adjacent tabs, so an
+# empty CHANGES field would shift CONFLICTS left into the CHANGE_REQUEST column.
 ROWS=()
  
 while IFS=$'\t' read -r issue_id issue_key summary; do
@@ -103,7 +105,20 @@ while IFS=$'\t' read -r issue_id issue_key summary; do
     PR_COUNT=$(jq '[.detail[]?.pullRequests[]?] | length' <<< "$DEV_INFO")
  
     if [[ "$PR_COUNT" -eq 0 ]]; then
-        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "(no PRs)" "-" "" "")")
+        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "(no PRs)" "-" "-" "-")")
+        continue
+    fi
+ 
+    # Only PRs still in play - drop MERGED/DECLINED (GitHub's "closed") branches
+    # so an old PR doesn't linger in the table after a QA-fix PR replaces it.
+    OPEN_PRS=$(jq -c '
+      [.detail[]?.pullRequests[]?] | map(select(.status != "MERGED" and .status != "DECLINED"))
+    ' <<< "$DEV_INFO")
+ 
+    OPEN_COUNT=$(jq 'length' <<< "$OPEN_PRS")
+ 
+    if [[ "$OPEN_COUNT" -eq 0 ]]; then
+        ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "(no open PRs)" "-" "-" "-")")
         continue
     fi
  
@@ -114,32 +129,40 @@ while IFS=$'\t' read -r issue_id issue_key summary; do
         pr_number=$(echo "$pr_path" | cut -d'/' -f4)
  
         if [[ -z "$owner" || -z "$repo" || -z "$pr_number" ]]; then
-            ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "?" "" "")")
+            ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "?" "-" "-")")
             continue
         fi
-
-        REVIEWS=$(curl -s \
-          --url "https://api.github.com/repos/${owner}/${repo}/pulls/${pr_number}/reviews" \
-          --header "Authorization: Bearer $GITHUB_TOKEN" \
-          --header 'Accept: application/vnd.github+json')
-
+ 
+        REVIEWS=$(fetch_all_github_pages "https://api.github.com/repos/${owner}/${repo}/pulls/${pr_number}/reviews")
+ 
         PR_INFO=$(curl -s \
           --url "https://api.github.com/repos/${owner}/${repo}/pulls/${pr_number}" \
           --header "Authorization: Bearer $GITHUB_TOKEN" \
           --header 'Accept: application/vnd.github+json')
-
+ 
+        if [[ "$REVIEWS" == "__ERROR__" ]]; then
+            # Don't report a false "0" when the API call itself failed
+            # (bad/rotated token, rate limit, etc.) - show it as unknown instead.
+            ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "?" "err" "-")")
+            continue
+        fi
+ 
         APPROVALS=$(jq 'if type == "array" then group_by(.user.login) | map(sort_by(.submitted_at) | last) | map(select(.state == "APPROVED")) | length else 0 end' <<< "$REVIEWS")
-
-        CHANGES=$(jq -r 'if type == "array" then group_by(.user.login) | map(sort_by(.submitted_at) | last) | map(select(.state == "CHANGES_REQUESTED")) | if length > 0 then "yes" else "" end else "" end' <<< "$REVIEWS")
-
-        CONFLICTS=$(jq -r 'if .mergeable == false then "yes" else "" end' <<< "$PR_INFO")
-
+ 
+        # Reviewers whose review has been re-requested. GitHub keeps their old
+        # CHANGES_REQUESTED review in /reviews, but the PR no longer counts it as
+        # "changes requested" (they're back to pending), so skip them here.
+        PENDING_REVIEWERS=$(jq -c '[.requested_reviewers[]?.login]' <<< "$PR_INFO" 2>/dev/null || echo '[]')
+ 
+        CHANGES=$(jq -r --argjson pending "$PENDING_REVIEWERS" 'if type == "array" then group_by(.user.login) | map(sort_by(.submitted_at) | last) | map(select(.state == "CHANGES_REQUESTED" and (.user.login as $u | $pending | index($u) | not))) | if length > 0 then "yes" else "-" end else "-" end' <<< "$REVIEWS")
+ 
+        CONFLICTS=$(jq -r 'if .mergeable == false then "yes" else "-" end' <<< "$PR_INFO")
+ 
         ROWS+=("$(printf '%s\t%s\t%s\t%s\t%s\t%s' "$issue_key" "$summary" "$pr_title" "$APPROVALS" "$CHANGES" "$CONFLICTS")")
  
     done < <(jq -r '
-      .detail[]?.pullRequests[]? |
-      [.url, .name, .status] | @tsv
-    ' <<< "$DEV_INFO")
+      sort_by(.lastUpdate) | last | [.url, .name, .status] | @tsv
+    ' <<< "$OPEN_PRS")
  
 done < <(jq -r '.[] | [.id, .key, .fields.summary] | @tsv' <<< "$CODE_REVIEW_ISSUES")
  
